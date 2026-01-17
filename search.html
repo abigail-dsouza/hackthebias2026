@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Word Search Game</title>
+
+
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    background: #f4f4f4;
+    display: flex;
+    justify-content: center;
+    padding: 20px;
+  }
+
+  .game {
+    display: flex;
+    gap: 30px;
+  }
+
+  table {
+    border-collapse: collapse;
+    user-select: none;
+  }
+
+  td {
+    width: 26px;
+    height: 26px;
+    border: 1px solid #333;
+    text-align: center;
+    font-size: 20px;
+    cursor: pointer;
+    background: white;
+  }
+
+  td.selected { background: #add8e6; }
+  td.found { background: #90ee90; }
+
+  .timer {
+    font-size: 22px;
+    font-weight: bold;
+    margin-bottom: 10px;
+  }
+
+  .found-word {
+    text-decoration: line-through;
+    color: green;
+  }
+</style>
+</head>
+<body>
+
+<div class="game">
+  <div>
+    <div class="timer" id="timer">Time: 00:00</div>
+    <table id="grid"></table>
+  </div>
+
+  <div class="words">
+    <h3>Find these words:</h3>
+    <ul id="wordList"></ul>
+  </div>
+</div>
+
+<script>
+/* ================= SETTINGS ================= */
+
+const size = 8;
+const words = ["HTML", "JAVA", "CSS", "CODE", "WEB"];
+const directions = [
+  [0, 1],
+  [1, 0],
+  [1, 1],
+  [-1, 1]
+];
+
+let foundCount = 0;
+
+/* ================= TIMER ================= */
+
+let seconds = 0;
+const timerInterval = setInterval(() => {
+  seconds++;
+  const m = String(Math.floor(seconds / 60)).padStart(2, "0");
+  const s = String(seconds % 60).padStart(2, "0");
+  timer.textContent = `Time: ${m}:${s}`;
+}, 1000);
+
+/* ================= GRID ================= */
+
+const grid = Array(size).fill().map(() => Array(size).fill(""));
+
+function placeWord(word) {
+  let placed = false;
+  while (!placed) {
+    const [dr, dc] = directions[Math.floor(Math.random() * directions.length)];
+    const r0 = Math.floor(Math.random() * size);
+    const c0 = Math.floor(Math.random() * size);
+
+    let ok = true;
+    for (let i = 0; i < word.length; i++) {
+      const r = r0 + dr * i;
+      const c = c0 + dc * i;
+      if (
+        r < 0 || c < 0 || r >= size || c >= size ||
+        (grid[r][c] && grid[r][c] !== word[i])
+      ) {
+        ok = false;
+        break;
+      }
+    }
+
+    if (ok) {
+      for (let i = 0; i < word.length; i++) {
+        grid[r0 + dr * i][c0 + dc * i] = word[i];
+      }
+      placed = true;
+    }
+  }
+}
+
+words.forEach(placeWord);
+
+for (let r = 0; r < size; r++) {
+  for (let c = 0; c < size; c++) {
+    if (!grid[r][c]) {
+      grid[r][c] = String.fromCharCode(65 + Math.random() * 26);
+    }
+  }
+}
+
+/* ================= RENDER ================= */
+
+const table = document.getElementById("grid");
+
+grid.forEach((row, r) => {
+  const tr = document.createElement("tr");
+  row.forEach((ch, c) => {
+    const td = document.createElement("td");
+    td.textContent = ch;
+    td.dataset.row = r;
+    td.dataset.col = c;
+    td.draggable = false; // disable native drag
+    tr.appendChild(td);
+  });
+  table.appendChild(tr);
+});
+
+const wordList = document.getElementById("wordList");
+words.forEach(w => {
+  const li = document.createElement("li");
+  li.textContent = w;
+  li.id = w;
+  wordList.appendChild(li);
+});
+
+/* ================= SELECTION (STABLE) ================= */
+
+let startCell = null;
+let direction = null;
+let selected = [];
+let isDragging = false;
+
+// Prevent native drag behavior completely
+document.addEventListener("dragstart", e => e.preventDefault());
+
+table.addEventListener("mousedown", e => {
+  if (e.target.tagName !== "TD") return;
+  e.preventDefault();
+
+  clearSelection();
+  startCell = e.target;
+  selected = [startCell];
+  startCell.classList.add("selected");
+  isDragging = true;
+});
+
+// Use mousemove instead of mouseover for stability
+document.addEventListener("mousemove", e => {
+  if (!isDragging) return;
+  e.preventDefault();
+
+  const cell = document.elementFromPoint(e.clientX, e.clientY);
+  if (!cell || cell.tagName !== "TD") return;
+
+  const r0 = +startCell.dataset.row;
+  const c0 = +startCell.dataset.col;
+  const r1 = +cell.dataset.row;
+  const c1 = +cell.dataset.col;
+
+  const dRow = r1 - r0;
+  const dCol = c1 - c0;
+
+  const absRow = Math.abs(dRow);
+  const absCol = Math.abs(dCol);
+
+  if (!direction) {
+    if (absRow + absCol < 2) return;
+
+    if (Math.abs(absRow - absCol) <= 1) {
+      direction = [Math.sign(dRow), Math.sign(dCol)];
+    } else if (absCol > absRow) {
+      direction = [0, Math.sign(dCol)];
+    } else {
+      direction = [Math.sign(dRow), 0];
+    }
+  }
+
+  clearSelection();
+  const [dr, dc] = direction;
+
+  let steps;
+  if (dr !== 0 && dc !== 0) {
+    steps = Math.min(absRow, absCol);
+  } else {
+    steps = Math.max(absRow, absCol);
+  }
+
+  for (let i = 0; i <= steps; i++) {
+    const r = r0 + dr * i;
+    const c = c0 + dc * i;
+    if (r < 0 || c < 0 || r >= size || c >= size) break;
+
+    const td = document.querySelector(
+      `td[data-row='${r}'][data-col='${c}']`
+    );
+    td.classList.add("selected");
+    selected.push(td);
+  }
+});
+
+document.addEventListener("mouseup", () => {
+  if (isDragging) {
+    checkWord();
+    isDragging = false;
+    direction = null;
+  }
+});
+
+/* ================= WORD CHECK ================= */
+
+function clearSelection() {
+  selected.forEach(c => c.classList.remove("selected"));
+  selected = [];
+}
+
+function checkWord() {
+  const word = selected.map(c => c.textContent).join("");
+  const rev = word.split("").reverse().join("");
+
+  if (words.includes(word) || words.includes(rev)) {
+    selected.forEach(c => c.classList.add("found"));
+
+    const el = document.getElementById(word) || document.getElementById(rev);
+    if (el && !el.classList.contains("found-word")) {
+      el.classList.add("found-word");
+      foundCount++;
+
+      if (foundCount === words.length) {
+        clearInterval(timerInterval);
+        alert("🎉 All words found!");
+      }
+    }
+  } else {
+    clearSelection();
+  }
+}
+</script>
+
+</body>
+</html>
