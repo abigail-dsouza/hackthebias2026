@@ -84,6 +84,16 @@
     box-shadow: 0 2px 4px rgba(0,0,0,0.2);
   }
 
+  .score {
+    font-size: 20px;
+    font-weight: bold;
+    color: #fff;
+    background: rgba(0,0,0,0.15);
+    padding: 8px 12px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  }
+
   table {
     border-collapse: collapse;
     user-select: none;
@@ -211,7 +221,10 @@
       <button class="start-button" id="startBtn">Start Game</button>
       <button class="how-button" id="howBtn">How to Play</button>
     </div>
-    <div class="timer" id="timer">Time: 00:00</div>
+    <div style="display:flex;gap:12px;align-items:center;margin-top:6px;">
+      <div class="timer" id="timer">Time: 00:00</div>
+      <div class="score" id="score">Score: 100</div>
+    </div>
     <table id="grid"></table>
   </div>
 
@@ -229,6 +242,7 @@
     <h2>🎉 Congratulations! 🎉</h2>
     <p>The company was: <strong id="companyName"></strong></p>
     <p id="victoryTime">You took 00:00</p>
+    <p id="victoryScore">Score: 100</p>
     <div style="display:flex;gap:12px;justify-content:center;">
       <button id="playAgainBtn" onclick="location.reload()">Play Again</button>
     </div>
@@ -251,6 +265,7 @@
 /* ================= SETTINGS ================= */
 
 const size = 8;
+let score = 100;
 const companyName = "Super Ultra Corp";
 const words = ["HTML", "JAVA", "CSS", "CODE"];
 const clues = [
@@ -275,6 +290,13 @@ let timerInterval = null;
 const startBtn = document.getElementById("startBtn");
 const timer = document.getElementById("timer");
 const howBtn = document.getElementById("howBtn");
+const scoreEl = document.getElementById("score");
+
+function updateScoreDisplay() {
+  scoreEl.textContent = `Score: ${score}`;
+}
+
+updateScoreDisplay();
 
 startBtn.addEventListener("click", () => {
   if (!gameStarted) {
@@ -284,6 +306,10 @@ startBtn.addEventListener("click", () => {
     // show clues and render them only after start
     document.getElementById("wordsContainer").style.display = "block";
     renderWordList();
+
+    // reset score on start
+    score = 100;
+    updateScoreDisplay();
 
     timerInterval = setInterval(() => {
       seconds++;
@@ -444,6 +470,10 @@ function revealWord(word, clueSpan, button) {
   clueSpan.innerHTML = `${clues[words.indexOf(word)]} → <span class="word-revealed">${word}</span>`;
   button.disabled = true;
   revealedCount++;
+
+  // subtract 25 per reveal, floor at 0
+  score = Math.max(0, score - 25);
+  updateScoreDisplay();
 }
 
 function clearSelection() {
@@ -477,10 +507,12 @@ function showVictoryModal() {
   const modal = document.getElementById("victoryModal");
   const victoryTime = document.getElementById("victoryTime");
   const companyEl = document.getElementById("companyName");
+  const victoryScoreEl = document.getElementById("victoryScore");
   const m = String(Math.floor(seconds / 60)).padStart(2, "0");
   const s = String(seconds % 60).padStart(2, "0");
   victoryTime.textContent = `You took ${m}:${s}`;
   companyEl.textContent = companyName;
+  victoryScoreEl.textContent = `Score: ${score}`;
   modal.style.display = "block";
 }
 
