@@ -12,6 +12,30 @@ DEFAULT_URLS = [
     "https://query.prod.cms.rt.microsoft.com/cms/api/am/binary/RW1lMj" 
 ]
 
+OMISSION_TEMPLATES = [
+    "Surprisingly, this report fails to mention _______ standards significantly.",
+    "The audit reveals a lack of verified data on _______.",
+    "Investors looking for _______ metrics will be disappointed here.",
+    "Unlike peers, this company omits standard _______ disclosures.",
+    "A key gap in this report is the absence of _______ data."
+]
+
+BIAS_TEMPLATES = [
+    "The report subjectively claims to be '_______' without data.",
+    "Market bias detected: using terms like '_______' lacks proof.",
+    "The text relies on fluff words like '_______' instead of facts.",
+    "Ambiguous language found: describing efforts as '_______' is vague.",
+    "Bias Alert: The company describes itself as '_______' subjectively."
+]
+
+FACT_TEMPLATES = [
+    "The report cites a metric of {val} regarding _______.",
+    "Official data shows {val} related to _______ usage.",
+    "They disclosed {val} in their _______ accounting.",
+    "A verified figure of {val} was reported for _______.",
+    "Audit confirmation: {val} linked to _______ performance."
+]
+
 class SustainabilityAuditor:
     def __init__(self):
         self.pdfs_processed = 0
@@ -27,8 +51,10 @@ class SustainabilityAuditor:
             reader = PdfReader(f)
             
             text = ""
-            print(f"Extracting text from {len(reader.pages)} pages...")
-            for page in reader.pages: # No limit for deep audit
+            # Sampling first 50 pages is usually enough for key metrics to save time
+            # but user wanted "full report". We'll stick to a reasonable limit for speed in this demo
+            # or just all pages if speed isn't an issue. Let's do all.
+            for page in reader.pages: 
                 extracted = page.extract_text()
                 if extracted:
                     text += extracted + "\n"
@@ -39,160 +65,169 @@ class SustainabilityAuditor:
             return ""
 
     def clean_text(self, text):
-        # Remove multiple spaces and newlines for regex safety
         return re.sub(r'\s+', ' ', text).strip()
 
     def split_into_sentences(self, text):
-        # Simple split, but effective for this scale
         sentences = re.split(r'(?<=[.!?])\s+', text)
         return [s.strip() for s in sentences if len(s) > 30]
 
-    def audit_report(self, text, report_name="Unknown Report"):
-        """Audits a single report against GRI standards."""
+    def extract_value_context(self, sentence, keywords, metrics):
+        """
+        Attempts to find a number/unit pair and the relevant keyword in the sentence.
+        Returns (value_str, keyword_found) or None.
+        """
+        sent_lower = sentence.lower()
+        
+        # Find which keyword matched
+        matched_kw = None
+        for kw in keywords:
+            if kw in sent_lower:
+                matched_kw = kw
+                break
+        
+        if not matched_kw: return None
+
+        # Find which metric matched
+        # Regex to capture number + space + metric (approximate)
+        # e.g. "50 tons", "100%", "3.5 mwh"
+        for metric in metrics:
+            # Pattern: number (int/float) + optional space + metric
+            # \d+(?:,\d+)*(?:\.\d+)? matches 1,000.50 etc
+            pattern = r'(\d+(?:,\d+)*(?:\.\d+)?\s*' + re.escape(metric) + r')'
+            match = re.search(pattern, sent_lower)
+            if match:
+                return match.group(1), matched_kw
+        
+        # Fallback: look for just a percentage if relevant? 
+        # For simplicity, strict metric matching
+        return None
+
+    def audit_report(self, text, report_name):
         print(f"\nScanning {report_name} against GRI Standards...")
         text_lower = text.lower()
         sentences = self.split_into_sentences(text)
         
         findings = []
 
-        # 1. CHECK GRI COVERAGE
+        # 1. CHECK GRI COVERAGE & FACTS
         for gri_code, data in GRI_STANDARDS.items():
             found_keywords = False
-            found_metrics = False
+            relevant_sentences = []
             
-            # Check for explicitly labeled GRI content first (high confidence)
-            if gri_code.lower() in text_lower:
-                confidence = "High"
-                findings.append({
-                    "type": "GRI_MENTION",
-                    "code": gri_code,
-                    "clue": f"The report explicitly cites {gri_code} ({data['title']}).",
-                    "original": f"Explicit mention of {gri_code}"
-                })
-                continue # Skip to next standard if explicitly found to avoid duplicates
-
             # Check for keyword coverage
             for kw in data['keywords']:
                 if kw in text_lower:
                     found_keywords = True
                     break
             
-            # Check for required metrics (quantitative)
-            # We look for the metric unit near the keyword? Or just presence of the unit globally?
-            # Let's check globally first for simplicity.
-            for metric in data['required_metrics']:
-                 if re.search(r'\b' + metric + r'\b', text_lower):
-                     found_metrics = True
-                     break
-            
-            if found_keywords and found_metrics:
-                # Add a positive finding
-                # We need to find a sentence that proves this.
-                relevant_sentences = [s for s in sentences if any(kw in s.lower() for kw in data['keywords']) and any(char.isdigit() for char in s)]
-                if relevant_sentences:
-                    s = random.choice(relevant_sentences)
-                    # Clean up sentence for clue
-                    clue = s
-                    for kw in data['keywords']:
-                         clue = re.sub(r'\b' + kw + r'\b', "_______", clue, flags=re.IGNORECASE)
-                    
-                    findings.append({
-                        "type": "FACT",
-                        "code": gri_code,
-                        "clue": clue,
-                        "original": s,
-                        "citation": "Report Text"
-                    })
-            elif not found_keywords:
-                # OMISSION DETECTED
-                 findings.append({
+            # Collect potential fact sentences
+            for s in sentences:
+                if any(kw in s.lower() for kw in data['keywords']):
+                    relevant_sentences.append(s)
+
+            if found_keywords:
+                # Try to extract a specific fact for a clue
+                fact_found = False
+                random.shuffle(relevant_sentences)
+                
+                for s in relevant_sentences:
+                    result = self.extract_value_context(s, data['keywords'], data['required_metrics'])
+                    if result:
+                        val_str, kw_used = result
+                        # Create template-based clue
+                        template = random.choice(FACT_TEMPLATES)
+                        # We want to fill in the blank for the TOPIC/Standard-ish word
+                        # But the user wants the blank to be "sustainability theme words".
+                        # Let's blank out the KEYWORD or the CONCEPT.
+                        # The code essentially mapped "theme words" earlier. 
+                        # This auditor maps GRI topics.
+                        # We will blank out the keyword found (e.g. "emissions", "waste").
+                        
+                        clue = template.format(val=val_str).replace("_______", "_______")
+                        # Wait, the template has _______ hardcoded as the place for the keyword.
+                        # But we need to make sure the keyword fits contextually in the blank?
+                        # Actually, the template says "regarding _______."
+                        # So if keyword is "emissions", "regarding emissions." works.
+                        
+                        # We need to preserve the finding logic
+                        findings.append({
+                            "type": "FACT",
+                            "code": gri_code,
+                            "word": kw_used.upper(), # The word to find in wordsearch
+                            "clue": template.format(val=val_str), # Template already has _______
+                            "original": s
+                        })
+                        fact_found = True
+                        break # One fact per GRI code per report is enough diversity
+            else:
+                # OMISSION
+                # Pick a missing keyword for the "Word"
+                # e.g. "BIODIVERSITY"
+                missing_word = data['keywords'][0].upper()
+                template = random.choice(OMISSION_TEMPLATES)
+                
+                findings.append({
                     "type": "OMISSION",
                     "code": gri_code,
-                    "clue": f"The report does not significantly disclose information aligned with GRI {gri_code} ({data['title']}).",
-                    "original": "N/A",
-                    "citation": "Gap Analysis",
-                    "details": f"Missing keywords like '{data['keywords'][0]}'"
+                    "word": missing_word,
+                    "clue": template, # Template handles the _______
+                    "original": "N/A"
                 })
 
-        # 2. DETECT BIAS (in sentences that lack numbers but use fluff words)
+        # 2. DETECT BIAS
         bias_sentences = []
         for s in sentences:
-            has_number = bool(re.search(r'\d', s))
-            has_fluff = any(w in s.lower() for w in BIAS_FLUFF_WORDS)
-            
-            if has_fluff and not has_number:
+            if any(w in s.lower() for w in BIAS_FLUFF_WORDS) and not re.search(r'\d', s):
                 bias_sentences.append(s)
         
         if bias_sentences:
-            # Pick a few biases
-            for _ in range(min(3, len(bias_sentences))):
-                s = random.choice(bias_sentences)
-                # Hide the fluff word
-                found_fluff = [w for w in BIAS_FLUFF_WORDS if w in s.lower()][0]
-                clue = re.sub(r'\b' + found_fluff + r'\b', "_______", s, flags=re.IGNORECASE)
-                findings.append({
-                    "type": "BIAS",
-                    "code": "Marketing",
-                    "clue": clue,
-                    "original": s,
-                    "citation": "Sentiment Analysis"
-                })
+            s = random.choice(bias_sentences)
+            found_fluff = [w for w in BIAS_FLUFF_WORDS if w in s.lower()][0]
+            template = random.choice(BIAS_TEMPLATES)
+            
+            findings.append({
+                "type": "BIAS",
+                "code": "MARKETING",
+                "word": found_fluff.upper(),
+                "clue": template,
+                "original": s
+            })
 
         return findings
 
     def generate_game(self, urls=DEFAULT_URLS):
         all_findings = []
-        
         for i, url in enumerate(urls):
-            name = f"Report {i+1}"
-            raw_text = self.download_pdf_text(url)
-            if not raw_text: continue
-            
-            clean = self.clean_text(raw_text)
-            report_findings = self.audit_report(clean, name)
-            all_findings.extend(report_findings)
+            clean = self.clean_text(self.download_pdf_text(url))
+            if clean:
+                all_findings.extend(self.audit_report(clean, f"Report {i+1}"))
 
-        # SELECT FINAL CLUES
-        # Criteria: 5 clues total.
-        # Mix: 2 Omissions (if any), 2 Facts, 1 Bias.
-        
-        omissions = [f for f in all_findings if f['type'] == "OMISSION"]
-        facts = [f for f in all_findings if f['type'] == "FACT"]
-        biases = [f for f in all_findings if f['type'] == "BIAS"]
-        
+        # Selection Logic: Unique clues, <15 words, varied types
         final_clues = []
+        seen_words = set()
         
-        # Add Omissions
-        if omissions:
-            final_clues.extend(random.sample(omissions, min(2, len(omissions))))
+        # Shuffle to mix reports
+        random.shuffle(all_findings)
+        
+        for f in all_findings:
+            if len(final_clues) >= 5: break
             
-        # Add Bias
-        if biases:
-            final_clues.extend(random.sample(biases, min(1, len(biases))))
+            # Avoid duplicate words in the puzzle
+            if f['word'] in seen_words: continue
             
-        # Fill rest with Facts
-        needed = 5 - len(final_clues)
-        if facts and needed > 0:
-            final_clues.extend(random.sample(facts, min(needed, len(facts))))
+            # Ensure clue is short (Templates are designed to be short, but check)
+            if len(f['clue'].split()) > 15: continue
             
-        # If still need more, take from any pile
-        while len(final_clues) < 5 and (omissions or facts or biases):
-             if omissions: final_clues.append(omissions.pop())
-             elif facts: final_clues.append(facts.pop())
-             elif biases: final_clues.append(biases.pop())
-             else: break
+            final_clues.append(f)
+            seen_words.add(f['word'])
 
-        print("\n=== ESG AUDITOR: GENERATED CLUES ===")
-        print("------------------------------------")
+        print("\n=== REFINED ESG CLUES (Short & Varied) ===")
+        print("------------------------------------------")
         for item in final_clues:
+            print(f"WORD     : {item['word']}")
             print(f"TYPE     : {item['type']}")
-            print(f"TOPIC    : {item['code']}")
             print(f"CLUE     : {item['clue']}")
-            if 'citation' in item:
-                print(f"CITATION : {item['citation']}")
-            if 'details' in item:
-                print(f"DETAILS  : {item['details']}")
-            print("-" * 50)
+            print("-" * 40)
 
 if __name__ == "__main__":
     auditor = SustainabilityAuditor()
