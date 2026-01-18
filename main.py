@@ -8,7 +8,7 @@ import random
 from pypdf import PdfReader
 from GRI_STANDARDS_DATABASE import GRI_STANDARDS, BIAS_FLUFF_WORDS
 
-# WARNING: Regenerate this API key immediately!
+
 ANTHROPIC_API_KEY = "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"
 
 # Initialize Flask and Claude
@@ -236,7 +236,7 @@ GRI COMPLIANCE FINDINGS:
 {gri_context}
 
 For each word:
-1. Extract or identify a KEY TERM from the PDF (3-8 letters, uppercase)
+1. Extract or identify a KEY TERM from the PDF (3-8 letters MAXIMUM. uppercase)
 2. Create a clue based on information from the PDF OR GRI findings (missing/misleading metrics)
 
 CRITICAL RULES:
@@ -281,7 +281,7 @@ No explanations, no numbering, just word then clue, alternating."""
 @app.route('/')
 def index():
     """Serve the game HTML"""
-    return send_from_directory('.', 'gametested.html')
+    return send_from_directory('.', 'game.html')
     
 
 @app.route('/new-game')
