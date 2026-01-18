@@ -6,7 +6,7 @@ from pypdf import PdfReader
 from GRI_STANDARDS_DATABASE import GRI_STANDARDS, BIAS_FLUFF_WORDS
 
 # WARNING: Regenerate this API key immediately!
-ANTHROPIC_API_KEY = "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"
+ANTHROPIC_API_KEY = "demoapikey1234567890"
 
 # Initialize Claude API
 client = Anthropic(api_key=ANTHROPIC_API_KEY)
