@@ -8,11 +8,14 @@ import random
 import threading
 from queue import Queue
 import time
+from dotenv import load_dotenv
+import os
 from pypdf import PdfReader
 from GRI_STANDARDS_DATABASE import GRI_STANDARDS, BIAS_FLUFF_WORDS
 
 
-ANTHROPIC_API_KEY = "test"
+load_dotenv()
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 
 # Initialize Flask and Claude
 app = Flask(__name__, static_folder='static')
