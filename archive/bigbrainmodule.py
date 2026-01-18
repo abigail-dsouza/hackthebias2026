@@ -6,7 +6,7 @@ from pypdf import PdfReader
 from GRI_STANDARDS_DATABASE import GRI_STANDARDS, BIAS_FLUFF_WORDS
 
 # WARNING: Regenerate this API key immediately!
-ANTHROPIC_API_KEY = "demoapikey1234567890"
+ANTHROPIC_API_KEY = "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"
 
 # Initialize Claude API
 client = Anthropic(api_key=ANTHROPIC_API_KEY)
@@ -242,6 +242,8 @@ For each word:
 CRITICAL RULES:
 - DO NOT mention "{company_name}" or any variation of the company name in the clues
 - The clues should be generic enough that players have to guess which company this is
+- The clues should be fun, engaging, simple, and educational
+- The clues should be fill-in-the-blank style as well. Example: "A metric this report fails to disclose: _____ consumption"
 - You can reference missing metrics (e.g., "A metric this report fails to disclose")
 - You can highlight misleading language (e.g., "Vague term used without supporting data")
 - You can reference bias words (e.g., "Subjective claim without evidence")
