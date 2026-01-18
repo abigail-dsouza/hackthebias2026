@@ -4,11 +4,10 @@ import re
 import random
 from pypdf import PdfReader
 
-# Example URLs of sustainability reports (found previously)
-# We use these as defaults if "finding" programmatically is restricted by lack of custom search API
+# Example URLs of sustainability reports
 DEFAULT_URLS = [
     "https://www.gstatic.com/gumdrop/sustainability/google-2024-environmental-report.pdf",
-    "https://query.prod.cms.rt.microsoft.com/cms/api/am/binary/RW1lMj" # Microsoft 2024 Report
+    "https://query.prod.cms.rt.microsoft.com/cms/api/am/binary/RW1lMj" 
 ]
 
 THEME_WORDS = [
@@ -21,6 +20,15 @@ BIAS_INDICATORS = [
     "best", "forefront", "innovative", "unique", "excellence"
 ]
 
+# Common standards topics to check for absence
+STANDARD_CHECKLIST = {
+    "BIODIVERSITY": ["biodiversity", "species", "habitat", "ecosystem", "nature"],
+    "HUMAN RIGHTS": ["human rights", "forced labor", "child labor", "trafficking", "modern slavery"],
+    "SCOPE 3": ["scope 3", "indirect emissions", "supply chain emissions", "value chain"],
+    "WATER RECYCLING": ["water recycling", "recycled water", "water reuse", "effluent"],
+    "GENDER PAY": ["gender pay", "pay gap", "equal pay", "remuneration"]
+}
+
 def download_pdf_text(url):
     """Downloads a PDF from a URL and extracts its text."""
     print(f"Downloading report from {url}...")
@@ -32,8 +40,8 @@ def download_pdf_text(url):
         reader = PdfReader(f)
         
         text = ""
-        # Limit to first 50 pages to save time/memory and usually contains the executive summary
-        for page in reader.pages[:50]: 
+        # Limit pages for speed
+        for page in reader.pages[:40]: 
             extracted = page.extract_text()
             if extracted:
                 text += extracted + "\n"
@@ -43,18 +51,13 @@ def download_pdf_text(url):
         return ""
 
 def clean_text(text):
-    """Normalizes whitespace."""
     return re.sub(r'\s+', ' ', text).strip()
 
 def split_into_sentences(text):
-    """Simple regex-based sentence splitter."""
-    # Split on . ? ! followed by a space/end of line. 
-    # Lookbehind check to avoid splitting on initials like U.S. might be needed but simple split is okay for this demo.
     sentences = re.split(r'(?<=[.!?])\s+', text)
-    return [s.strip() for s in sentences if len(s) > 20] # Filter out tiny artifacts
+    return [s.strip() for s in sentences if len(s) > 20]
 
 def get_sentence_type(sentence):
-    """Heuristic to determine if a sentence mentions facts (numbers) or biases (subjective)."""
     has_number = bool(re.search(r'\d+%|\$\d+|\d{4}', sentence))
     has_bias = any(word in sentence.lower() for word in BIAS_INDICATORS)
     
@@ -63,30 +66,64 @@ def get_sentence_type(sentence):
         types.append("FACT")
     if has_bias:
         types.append("BIAS")
-    
     return types
+
+def find_missing_standards(text):
+    """Checks which standards are NOT mentioned in the text."""
+    missing = []
+    text_lower = text.lower()
+    
+    for topic, keywords in STANDARD_CHECKLIST.items():
+        found = False
+        for kw in keywords:
+            if kw in text_lower:
+                found = True
+                break
+        if not found:
+            missing.append(topic)
+    return missing
 
 def generate_game_content(urls=DEFAULT_URLS):
     all_text = ""
+    report_texts = [] # Store individual texts for "missing" analysis per report if needed, 
+                      # but simplest is to treat all as one corpus or check them individually.
+                      # Let's check them individually to find *a* report that missed something.
+    
+    combined_missing_clues = []
+    
+    print("Fetching and analyzing reports...")
+    
     for url in urls:
         raw_text = download_pdf_text(url)
-        all_text += clean_text(raw_text) + " "
-    
+        clean = clean_text(raw_text)
+        if not clean: continue
+        all_text += clean + " "
+        
+        # Check for missing standards in this specific report
+        missing_topics = find_missing_standards(clean)
+        for topic in missing_topics:
+            # Create a clue about this omission
+            # We don't want to over-generate, just store potential clues
+            clue_text = f"One analysed report failed to significantly mention _______ standards."
+            combined_missing_clues.append({
+                "word": topic,
+                "clue": clue_text,
+                "types": "MISSING STANDARD",
+                "original": "N/A"
+            })
+            
     if not all_text.strip():
-        print("No text could be extracted.")
+        print("No text extracted.")
         return
 
     sentences = split_into_sentences(all_text)
+    found_clues = {} 
     
-    found_clues = {} # Map word -> list of (sentence, type)
-    
-    print("\nAnalyzing text for themes...")
+    print("Scanning for facts and biases...")
     
     for sentence in sentences:
         sentence_upper = sentence.upper()
         for word in THEME_WORDS:
-            # Check if the word is in the sentence (simple boundary check)
-            # We want the word to appear clearly
             if re.search(r'\b' + word + r'\b', sentence_upper):
                 stypes = get_sentence_type(sentence)
                 if stypes:
@@ -94,32 +131,37 @@ def generate_game_content(urls=DEFAULT_URLS):
                         found_clues[word] = []
                     found_clues[word].append((sentence, stypes))
 
-    # Select 5 words
-    available_words = [w for w in found_clues.keys() if len(found_clues[w]) > 0]
-    
-    if len(available_words) < 5:
-        print(f"Only found {len(available_words)} theme words. Need more text or more loosely defined keywords.")
-        selected_words = available_words
-    else:
-        selected_words = random.sample(available_words, 5)
-
-    print("\n=== SUSTAINABILITY THEME & CLUES ===")
-    print("--------------------------------------")
+    # We need 5 words total.
+    # Strategy: Pick 1-2 "Missing" clues if available, and the rest Fact/Bias.
     
     final_output = []
     
-    for word in selected_words:
-        # Try to mix facts and biases
-        options = found_clues[word]
-        # Prefer short succinct sentences for clues, < 200 chars
-        short_options = [opt for opt in options if len(opt[0]) < 200]
-        if not short_options:
-            short_options = options
-            
-        picked_sentence, picked_types = random.choice(short_options)
+    # Try to add missed standard clues
+    unique_missing = {i['word']: i for i in combined_missing_clues}
+    missing_words = list(unique_missing.keys())
+    
+    # Randomly pick up to 2 missing standards if available
+    num_missing_to_pick = min(2, len(missing_words))
+    if num_missing_to_pick > 0:
+        picked_missing = random.sample(missing_words, num_missing_to_pick)
+        for pm in picked_missing:
+            final_output.append(unique_missing[pm])
+    
+    # Fill the rest with normal words
+    remaining_slots = 5 - len(final_output)
+    available_words = [w for w in found_clues.keys() if len(found_clues[w]) > 0]
+    
+    if len(available_words) < remaining_slots:
+        selected_words = available_words
+    else:
+        selected_words = random.sample(available_words, remaining_slots)
         
-        # Create fill-in-the-blank
-        # Case insensitive replace of the word
+    for word in selected_words:
+        options = found_clues[word]
+        short_options = [opt for opt in options if len(opt[0]) < 200]
+        if not short_options: short_options = options
+        
+        picked_sentence, picked_types = random.choice(short_options)
         clue = re.sub(r'\b' + word + r'\b', "_______", picked_sentence, flags=re.IGNORECASE)
         
         final_output.append({
@@ -129,10 +171,12 @@ def generate_game_content(urls=DEFAULT_URLS):
             "original": picked_sentence
         })
 
+    print("\n=== GENERATED SUSTAINABILITY CLUES ===")
+    print("--------------------------------------")
     for item in final_output:
-        print(f"WORD: {item['word']}")
-        print(f"TYPE: {item['types']}")
-        print(f"CLUE: {item['clue']}")
+        print(f"THEME WORD: {item['word']}")
+        print(f"CATEGORY  : {item['types']}")
+        print(f"CLUE      : {item['clue']}")
         print("-" * 40)
 
 if __name__ == "__main__":
